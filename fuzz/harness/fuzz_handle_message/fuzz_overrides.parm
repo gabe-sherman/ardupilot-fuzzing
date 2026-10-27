@@ -1,0 +1,8 @@
+# Appended after the ROMFS copter.parm that SITL loads for --model quad.
+# No dataflash logging: every exec would otherwise write a .BIN into logs/.
+LOG_BACKEND_TYPE 0
+# SITL traps FE_INVALID/OVERFLOW/DIVBYZERO by default; flight hardware does
+# not. Fuzzed NaN/huge floats in MAVLink fields hit those traps within
+# minutes (NaN compares, out-of-range float->int32), drowning out memory
+# errors. Set to 1 to hunt that bug class specifically.
+SIM_FLOAT_EXCEPT 0

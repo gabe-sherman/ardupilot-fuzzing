@@ -1,0 +1,7 @@
+# Written by SITL into whatever directory the harness runs from.
+eeprom.bin
+terrain/
+logs/
+dumpstack.sh_*.out
+dumpcore.sh_*.out
+__pycache__/

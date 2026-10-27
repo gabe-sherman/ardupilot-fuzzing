@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+#
+# Builds the harness as ArduCopter itself: every ArduCopter/*.cpp, unchanged,
+# plus fuzz_handle_message.cpp, linked against the same ArduCopter_libs that
+# the real `arducopter` binary uses (defined in ArduCopter/wscript). So the
+# libraries see APM_BUILD_ArduCopter and behave exactly as on a real copter.
+#
+# Copter.cpp ends in AP_HAL_MAIN_CALLBACKS(&copter), which defines AP_MAIN;
+# AP_HAL_Main.h only defaults AP_MAIN to `main`, so renaming it here leaves
+# Copter's entry point unused and the harness supplies main() instead.
+
+def build(bld):
+    copter_dir = bld.srcnode.find_dir('ArduCopter')
+    bld.ap_program(
+        program_groups=['tool', 'fuzz'],
+        use='ArduCopter_libs',
+        use_legacy_defines=False,
+        source=copter_dir.ant_glob('*.cpp') + bld.path.ant_glob('*.cpp'),
+        defines=[
+            'FRAME_CONFIG=MULTICOPTER_FRAME',
+            'APM_BUILD_DIRECTORY=APM_BUILD_ArduCopter',
+            'AP_BUILD_TARGET_NAME="ArduCopter"',
+            'AP_MAIN=arducopter_main_unused',
+        ],
+        # AP_HAL::panic(const char*, ...) -> abort(); see the harness.
+        linkflags=['-Wl,--wrap=_ZN6AP_HAL5panicEPKcz'],
+    )

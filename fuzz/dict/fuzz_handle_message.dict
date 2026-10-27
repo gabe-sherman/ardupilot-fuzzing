@@ -1,0 +1,35 @@
+# AFL++ dictionary for fuzz_handle_message.
+#
+# Input is a sequence of records: u8 sysid, u8 compid, u24 msgid (LE),
+# u8 len, payload. These tokens are the fixed-shape header fields; payload
+# constants (MAV_CMD values etc.) are left to the fuzzer's mutations.
+
+gcs_sender                  = "\xff\xbe"
+
+msg_heartbeat               = "\x00\x00\x00"
+msg_set_mode                = "\x0b\x00\x00"
+msg_param_request_read      = "\x14\x00\x00"
+msg_param_request_list      = "\x15\x00\x00"
+msg_param_set               = "\x17\x00\x00"
+msg_mission_request_partial  = "\x25\x00\x00"
+msg_mission_write_partial    = "\x26\x00\x00"
+msg_mission_item             = "\x27\x00\x00"
+msg_mission_request           = "\x28\x00\x00"
+msg_mission_set_current       = "\x29\x00\x00"
+msg_mission_request_list      = "\x2b\x00\x00"
+msg_mission_count              = "\x2c\x00\x00"
+msg_mission_clear_all          = "\x2d\x00\x00"
+msg_mission_ack                 = "\x2f\x00\x00"
+msg_set_gps_global_origin        = "\x30\x00\x00"
+msg_mission_request_int          = "\x33\x00\x00"
+msg_mission_item_int              = "\x49\x00\x00"
+msg_command_int                    = "\x4b\x00\x00"
+msg_command_long                    = "\x4c\x00\x00"
+msg_command_ack                      = "\x4d\x00\x00"
+msg_file_transfer_protocol             = "\x6e\x00\x00"
+msg_timesync                            = "\x6f\x00\x00"
+msg_log_request_list                     = "\x75\x00\x00"
+msg_log_request_data                      = "\x77\x00\x00"
+msg_log_erase                              = "\x79\x00\x00"
+msg_log_request_end                         = "\x7a\x00\x00"
+msg_setup_signing                            = "\x00\x01\x00"
