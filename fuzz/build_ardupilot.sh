@@ -9,6 +9,7 @@
 #
 # Config (override via environment):
 #   AP_FUZZ_ROOT   workspace root                  (default ~/apfuzz)
+#   AFLPP_DIR      AFL++ build from build_afl++.sh (default $AP_FUZZ_ROOT/AFLplusplus)
 #   ARDUPILOT_DIR  ardupilot checkout              (default $AP_FUZZ_ROOT/ardupilot)
 #   AP_COMMIT      ArduPilot commit to build       (default: the one the harness
 #                  was verified against; it relies on SITL/scheduler internals)
@@ -20,6 +21,7 @@
 set -euo pipefail
 
 : "${AP_FUZZ_ROOT:=$HOME/apfuzz}"
+: "${AFLPP_DIR:=$AP_FUZZ_ROOT/AFLplusplus}"
 : "${ARDUPILOT_DIR:=$AP_FUZZ_ROOT/ardupilot}"
 : "${AP_COMMIT:=dc78bc54b855af03597d03e0a6c9ec13b05f41a2}"
 : "${USE_ASAN:=1}"
@@ -41,9 +43,12 @@ log()  { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die()  { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 # ---------------------------------------------------------------- 1. toolchain
-TOOLS=(git python3 afl-clang-fast afl-clang-fast++ afl-fuzz clang clang++)
-# Verified with Ubuntu 22.04's afl++ 4.00c (clang-14 backend).
-APT_PKGS=(afl++ clang git python3 python3-venv)
+AFLPP_DIR="$AFLPP_DIR" "$SCRIPT_DIR/build_afl++.sh"
+export AFLPP_DIR
+export PATH="$AFLPP_DIR:$PATH"
+
+TOOLS=(git python3 clang clang++)
+APT_PKGS=(clang git python3 python3-venv)
 toolchain_ok() {
     for t in "${TOOLS[@]}"; do command -v "$t" >/dev/null || return 1; done
     python3 -c 'import ensurepip' 2>/dev/null  # absent without python3-venv
@@ -133,22 +138,33 @@ export PATH="$VENV/bin:$PATH"
 cd "$ARDUPILOT_DIR"
 
 # ------------------------------------------------------------------ 4. configure
-log "Configuring waf (board=sitl) with the real compiler"
-CC="$CONF_CC" CXX="$CONF_CXX" "$VENV/bin/python" ./waf configure --board sitl --debug
-
 CACHE="build/c4che/sitl_cache.py"
-[[ -f "$CACHE" ]] || die "waf cache not found at $CACHE after configure"
+STAMP="build/.fuzz_config"
+# afl-cc reads ASAN/LAF from the environment, so waf can't see them change:
+# any config change gets a clean build, otherwise waf rebuilds only what changed.
+CONFIG="$(git rev-parse HEAD) AFLPP_DIR=$AFLPP_DIR ASAN=$USE_ASAN LAF=$LAF"
+if [[ -f "$CACHE" && "$(cat "$STAMP" 2>/dev/null)" == "$CONFIG" ]]; then
+    log "Reusing waf configuration ($CONFIG)"
+else
+    rm -rf build
+    log "Configuring waf (board=sitl) with the real compiler"
+    CC="$CONF_CC" CXX="$CONF_CXX" "$VENV/bin/python" ./waf configure --board sitl --debug
 
-log "Swapping in AFL++ compiler wrappers for the build step"
-python3 - "$CACHE" <<'PYEOF'
-import re, sys
+    [[ -f "$CACHE" ]] || die "waf cache not found at $CACHE after configure"
+
+    log "Swapping in AFL++ compiler wrappers for the build step"
+    python3 - "$CACHE" <<'PYEOF'
+import os, re, sys
 path = sys.argv[1]
 text = open(path).read()
+# Absolute paths: switching AFL++ builds changes the cached compiler, so
+# waf rebuilds everything instead of mixing old and new instrumentation.
+afl = os.environ["AFLPP_DIR"]
 subs = {
-    r"^CC = \[.*\]$":       "CC = ['afl-clang-fast']",
-    r"^CXX = \[.*\]$":      "CXX = ['afl-clang-fast++']",
-    r"^LINK_CC = \[.*\]$":  "LINK_CC = ['afl-clang-fast']",
-    r"^LINK_CXX = \[.*\]$": "LINK_CXX = ['afl-clang-fast++']",
+    r"^CC = \[.*\]$":       f"CC = ['{afl}/afl-clang-fast']",
+    r"^CXX = \[.*\]$":      f"CXX = ['{afl}/afl-clang-fast++']",
+    r"^LINK_CC = \[.*\]$":  f"LINK_CC = ['{afl}/afl-clang-fast']",
+    r"^LINK_CXX = \[.*\]$": f"LINK_CXX = ['{afl}/afl-clang-fast++']",
 }
 for pat, repl in subs.items():
     text, n = re.subn(pat, repl, text, flags=re.M)
@@ -156,7 +172,9 @@ for pat, repl in subs.items():
         sys.exit(f"expected exactly one match for {pat!r}, got {n}")
 open(path, "w").write(text)
 PYEOF
-grep -nE "^(CC|CXX|LINK_CC|LINK_CXX) =" "$CACHE" | sed 's/^/  /'
+    grep -nE "^(CC|CXX|LINK_CC|LINK_CXX) =" "$CACHE" | sed 's/^/  /'
+    echo "$CONFIG" > "$STAMP"
+fi
 
 # ------------------------------------------------------------ 5. instrument it
 # AFL++ reads these at *build* time, not configure time:

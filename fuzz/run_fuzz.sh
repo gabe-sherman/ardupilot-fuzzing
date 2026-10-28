@@ -7,6 +7,7 @@
 #
 # Config (override via environment):
 #   AP_FUZZ_ROOT   workspace root        (default ~/apfuzz)
+#   AFLPP_DIR      AFL++ build           (default $AP_FUZZ_ROOT/AFLplusplus)
 #   CORES          parallel fuzzers      (default 1)
 #   TIMEOUT        per-exec timeout, ms  (default 1000; a 64-message input
 #                  runs ~250 vehicle main-loop iterations)
@@ -15,6 +16,9 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 : "${AP_FUZZ_ROOT:=$HOME/apfuzz}"
+: "${AFLPP_DIR:=$AP_FUZZ_ROOT/AFLplusplus}"
+# The AFL++ that build_afl++.sh built, matching the harness instrumentation.
+export PATH="$AFLPP_DIR:$PATH"
 : "${CORES:=1}"
 : "${TIMEOUT:=1000}"
 
@@ -31,6 +35,7 @@ die() { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 [[ -x "$BIN" ]] || die "harness not built: $BIN  (run ./fuzz/build_ardupilot.sh)"
 [[ -d "$CORPUS" ]] || die "no corpus at $CORPUS"
+[[ -x "$AFLPP_DIR/afl-fuzz" ]] || die "AFL++ not built at $AFLPP_DIR (run ./fuzz/build_ardupilot.sh)"
 
 # AFL++ refuses to start if crashes get piped to an external handler, because it
 # can no longer tell a crash from a hang. WSL2 commonly ships a piped pattern.

@@ -148,7 +148,7 @@ public:
         if (getenv("AP_FUZZ_DEBUG")) {
             fprintf(stderr, "AP_FUZZ_DEBUG armed=%d mode=%u mission_items=%u t=%ums\n",
                     hal.util->get_soft_armed(), vehicle.get_mode(),
-                    unsigned(AP::mission().num_commands()),
+                    unsigned(AP_Mission::get_singleton()->num_commands()),
                     unsigned(AP_HAL::millis()));
         }
         // Skip static destructors of the whole vehicle.
@@ -172,10 +172,17 @@ int main(int argc, char *argv[])
     defaults[n] = '\0';
     strcat(defaults, ".parm");
 
-    // Serial ports are "none" so nothing blocks in accept() or binds a TCP
-    // port (parallel fuzzers would collide). SERIAL3/4 stay as the simulated
-    // GPSes. --instance keeps the remaining UDP sim ports apart per fuzzer.
+    // Serial ports are UDP clients aimed at the discard port: nothing blocks
+    // in accept() or binds a port (parallel fuzzers would collide), the
+    // output is dropped, yet the ports count as connected. That matters: an
+    // unconnected SITL port reports zero txspace, so the vehicle would skip
+    // building every reply on it and SERIAL_CONTROL writes would never touch
+    // their data (which hid CVE-2026-38971). outfile:/dev/null is not an
+    // option: SITL's filesystem only opens regular files. SERIAL3/4 stay as
+    // the simulated GPSes. --instance keeps SITL's own UDP sim ports apart
+    // per fuzzer.
     const char *instance = getenv("AP_FUZZ_INSTANCE");
+    const char *null_port = "udpclient:127.0.0.1:9";
     const char *sitl_argv[] = {
         argv[0],
         "--model", "quad",
@@ -183,11 +190,11 @@ int main(int argc, char *argv[])
         "--wipe",
         "--instance", instance ? instance : "0",
         "--defaults", defaults,
-        "--serial0", "none", "--serial1", "none", "--serial2", "none",
-        "--serial5", "none", "--serial6", "none", "--serial7", "none",
+        "--serial0", null_port, "--serial1", null_port, "--serial2", null_port,
+        "--serial5", null_port, "--serial6", null_port, "--serial7", null_port,
         // Not --serial9: SITL accepts it but _serial_path has only 9 slots,
         // so it overwrites the neighbouring cmdline_param array.
-        "--serial8", "none",
+        "--serial8", null_port,
         nullptr,
     };
     hal.run(ARRAY_SIZE(sitl_argv) - 1, (char * const *)sitl_argv, &callbacks);

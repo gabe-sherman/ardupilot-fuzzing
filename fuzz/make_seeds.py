@@ -120,6 +120,9 @@ SEEDS = {
     "origin_and_home": [m.MAVLink_set_gps_global_origin_message(TS, LAT, LNG, 584000, 0),
                         cmd_int(m.MAV_CMD_DO_SET_HOME, z=0, x=LAT, y=LNG)],
     "command_int_fence": [cmd_int(m.MAV_CMD_DO_FENCE_ENABLE, p1=1)],
+    # device 101 = SERIAL1; a valid 4-byte write (count <= 70)
+    "serial_control": [m.MAVLink_serial_control_message(
+        101, 0, 0, 0, 4, list(b"ping") + [0] * 66)],
 }
 
 

@@ -11,20 +11,26 @@ parameter or FTP sessions are reachable.
 Tested on Ubuntu 22.04 (native or WSL2). Needs about 3 GB of disk.
 
 ```sh
-./fuzz/build_ardupilot.sh                     # installs AFL++ via apt if missing, clones + builds
+./fuzz/build_ardupilot.sh                     # builds AFL++ from source, clones + builds ArduPilot
 sudo sysctl -w kernel.core_pattern=core       # once per boot, see below
 ./fuzz/run_fuzz.sh                            # one core
 CORES=4 ./fuzz/run_fuzz.sh                    # or several
 ```
 
-- The first build clones ArduPilot (pinned commit, see `AP_COMMIT` in
+- The first build runs `fuzz/build_afl++.sh`, which clones AFL++ `v5.03c`
+  from GitHub and builds it (about 8 minutes on an 8-core machine; apt
+  supplies only build dependencies such as clang-14 and llvm-14-dev). It then
+  clones ArduPilot (pinned commit, see `AP_COMMIT` in
   `fuzz/build_ardupilot.sh`) and compiles all of ArduCopter with AFL
-  instrumentation and AddressSanitizer. It took roughly 7 minutes on an
-  8-core machine. Re-running it after editing the harness only rebuilds what
-  changed.
+  instrumentation and AddressSanitizer, roughly another 7 minutes.
+  Re-running it skips AFL++ and `waf configure` and only rebuilds what
+  changed. Changing `USE_ASAN`, `LAF`, `AFLPP_DIR` or the ArduPilot commit
+  forces a clean ArduPilot build, since waf can't see those.
 - Everything it produces lives under `~/apfuzz` (override with
-  `AP_FUZZ_ROOT`): the ArduPilot checkout, a Python venv for the build-time
-  code generators, the binary in `out/`, and fuzzer output in `findings/`.
+  `AP_FUZZ_ROOT`): the AFL++ build in `AFLplusplus/`, the ArduPilot checkout,
+  a Python venv for the build-time code generators, the binary in `out/`, and
+  fuzzer output in `findings/`. Nothing is installed system-wide; the scripts
+  put `~/apfuzz/AFLplusplus` first on `PATH` themselves.
 - `core_pattern`: AFL++ refuses to run when crashes are piped to a crash
   handler, which Ubuntu (apport) and WSL2 both do. The setting resets on
   reboot. `run_fuzz.sh` checks it and tells you if it needs fixing.
@@ -69,10 +75,28 @@ hit those within minutes, burying everything else. Set it to 1 and rebuild to
 hunt that class on purpose. Known reproducers of it are in
 `~/apfuzz/findings/fpe_known/` on the machine that found them.
 
+## Reproducing CVE-2026-38971
+
+```sh
+./fuzz/reproduce_CVE.sh
+```
+
+A SERIAL_CONTROL message with `count` larger than its 70-byte data buffer made
+the handler read past the buffer on the stack (fixed upstream in `ee7c410`,
+PR #32587). The script builds the harness at the last vulnerable commit
+(`fe1471c`) in `~/apfuzz/cve-2026-38971`, feeds it `fuzz/pocs/CVE-2026-38971.bin`
+(one SERIAL_CONTROL message, `device=100`, `count=255`), and checks for an ASan
+`stack-buffer-overflow` in `GCS_MAVLINK::handle_serial_control`. If the regular
+build exists it also runs the input there, where it should be clean. The first
+run does a full ArduPilot build (about 7 minutes).
+
 ## Files
 
-- `fuzz/build_ardupilot.sh` installs the toolchain, checks out ArduPilot, copies
-  the harness into it and builds `~/apfuzz/out/fuzz_handle_message`.
+- `fuzz/build_afl++.sh` builds AFL++ `v5.03c` from source into
+  `~/apfuzz/AFLplusplus` (called by `build_ardupilot.sh`).
+- `fuzz/build_ardupilot.sh` builds AFL++, checks out ArduPilot, copies the
+  harness into it and builds `~/apfuzz/out/fuzz_handle_message`.
+- `fuzz/reproduce_CVE.sh` and `fuzz/pocs/` reproduce a known CVE (see above).
 - `fuzz/run_fuzz.sh` starts `afl-fuzz` (`CORES`, `TIMEOUT` env vars), giving each
   fuzzer its own working directory and SITL port range.
 - `fuzz/harness/fuzz_handle_message/` holds the harness source, its waf build
